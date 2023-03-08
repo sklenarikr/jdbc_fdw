@@ -1011,7 +1011,7 @@ int
 jq_connection_used_password(const Jconn * conn)
 {
 	ereport(DEBUG3, (errmsg("In jq_connection_used_password")));
-	return 0;
+	return 1; // TODO: Temporary change. Need to check the parameters of the connection
 }
 
 void
@@ -1252,6 +1252,33 @@ jq_bind_sql_var(Jconn * conn, Oid type, int attnum, Datum value, bool *isnull, i
 				(*Jenv)->DeleteLocalRef(Jenv, dat);
 				break;
 			}
+		case DATEOID:
+			{
+				/* Bind as text */
+				char	   *outputString = NULL;
+				jstring		dat = NULL;
+				Oid			outputFunctionId = InvalidOid;
+				bool		typeVarLength = false;
+
+				getTypeOutputInfo(type, &outputFunctionId, &typeVarLength);
+				outputString = OidOutputFunctionCall(outputFunctionId, value);
+				dat = (*Jenv)->NewStringUTF(Jenv, outputString);
+				idBindPreparedStatement = (*Jenv)->GetMethodID(Jenv, JDBCUtilsClass, "bindDatePreparedStatement",
+															   "(Ljava/lang/String;II)V");
+				if (idBindPreparedStatement == NULL)
+				{
+					/* Return Java memory */
+					(*Jenv)->DeleteLocalRef(Jenv, dat);
+					ereport(ERROR, (errmsg("Failed to find the JDBCUtils.bindDatePreparedStatement method!")));
+				}
+				jq_exception_clear();
+				(*Jenv)->CallObjectMethod(Jenv, conn->JDBCUtilsObject, idBindPreparedStatement, dat, attnum, resultSetID);
+				jq_get_exception();
+
+				/* Return Java memory */
+				(*Jenv)->DeleteLocalRef(Jenv, dat);
+				break;
+			}
 		case TIMEOID:
 			{
 				/* Bind as text */
@@ -1399,16 +1426,17 @@ jq_get_exception()
 		/* determines if an exception is being thrown */
 		exc = (*Jenv)->ExceptionOccurred(Jenv);
 		/* get to the message and stack trace one as String */
-		objectClass = (*Jenv)->FindClass(Jenv, "java/lang/Object");
+		objectClass = (*Jenv)->FindClass(Jenv, "java/lang/Throwable");
 		if (objectClass == NULL)
 		{
-			ereport(ERROR, (errmsg("java/lang/Object class could not be created")));
+			ereport(ERROR, (errmsg("java/lang/Throwable class could not be created")));
 		}
-		exceptionMsgID = (*Jenv)->GetMethodID(Jenv, objectClass, "toString", "()Ljava/lang/String;");
+		exceptionMsgID = (*Jenv)->GetMethodID(Jenv, objectClass, "getMessage", "()Ljava/lang/String;");
 		exceptionMsg = (jstring) (*Jenv)->CallObjectMethod(Jenv, exc, exceptionMsgID);
 		exceptionString = jdbc_convert_string_to_cstring((jobject) exceptionMsg);
 		err_msg = pstrdup(exceptionString);
-		ereport(ERROR, (errmsg("remote server returned an error")));
+		ereport(ERROR, (errmsg("remote server returned an error"),
+		                errdetail("%s", err_msg)));
 		ereport(DEBUG3, (errmsg("%s", err_msg)));
 	}
 	return;

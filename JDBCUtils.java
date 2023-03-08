@@ -21,6 +21,7 @@ import java.io.*;
 import java.net.URL;
 import java.sql.*;
 import java.time.LocalTime;
+import java.time.LocalDate;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
@@ -797,6 +798,26 @@ public class JDBCUtils {
       checkPstmt(tmpPstmt);
       InputStream targetStream = new ByteArrayInputStream(dat);
       tmpPstmt.setBinaryStream(attnum, targetStream, length);
+      resultSetInfoMap.get(resultSetID).setPstmt(tmpPstmt);
+    } catch (Throwable e) {
+      throw e;
+    }
+  }
+
+  /*
+   * bindDatePreparedStatement
+   *      Bind the value to the PreparedStatement object based on the query
+   */
+  public void bindDatePreparedStatement(String values, int attnum, int resultSetID)
+      throws SQLException {
+
+    try {
+      checkConnExist();
+      PreparedStatement tmpPstmt = resultSetInfoMap.get(resultSetID).getPstmt();
+      checkPstmt(tmpPstmt);
+      String pattern = "[yyyy-MM-dd][dd.MM.yyyy]";
+      LocalDate localDate = LocalDate.parse(values, DateTimeFormatter.ofPattern(pattern));
+      tmpPstmt.setObject(attnum, localDate);
       resultSetInfoMap.get(resultSetID).setPstmt(tmpPstmt);
     } catch (Throwable e) {
       throw e;
